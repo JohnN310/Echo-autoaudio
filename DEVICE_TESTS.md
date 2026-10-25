@@ -1,0 +1,26 @@
+# Physical-device acceptance checks
+
+Status: **not yet run**. The development machine has no connected Android device or configured Android SDK, and cannot run an iOS simulator. A native bundle export is not evidence that these device behaviors pass.
+
+Test a development build on an iPhone and an Android phone, using speaker, Bluetooth headphones, and a car audio connection where practical.
+
+| Area | Acceptance check |
+| --- | --- |
+| First launch | Select interests, consent to autoplay, reach one listening screen without scrolling a feed. |
+| Queue | Listen through at least 4 clips with screen on, then lock for 15 minutes. Native queue continues; controls still respond. |
+| Lock screen | Play/pause, next/previous, seek where available; metadata follows the current clip. |
+| Interruptions | Navigation instruction, call, Siri/Assistant and alarm; Echo pauses/ducks appropriately, never overwhelms navigation. Verify resumption separately on both platforms. |
+| Bluetooth | Headset buttons, reconnect, car route changes, disconnection. Disconnect must not unexpectedly blast audio from phone speakers. |
+| Voice | Activate, then say each of six commands. Confirm only one action per utterance, short recognition window, no unwanted extra skip. |
+| Privacy | Airplane mode plus installed offline English model works. Missing model fails gracefully; no network-recognition fallback. Backgrounding cancels command capture. |
+| Save/follow | Repeat the command twice; item remains saved/followed. No toggling back off. |
+| Unknown speech | “Do not play”, conversational sentences and silence never trigger an action. |
+| Permissions | Deny mic/speech permissions, retry, and restore in Settings. Playback remains usable. |
+| Recording | Record, stop, preview, save, force-close/reopen. The file survives. 180-second native cap works. Backgrounding ends recording. |
+| Upload | Import MP3/M4A/WAV, over-20-MB file, invalid audio and >3-minute audio. Invalid content cannot be published. |
+| Persistence | Preferences, saved clips, follows and local audio survive restart. |
+| Accessibility | VoiceOver/TalkBack, large text, smallest supported phone screen; primary controls remain reachable and labeled. |
+
+## Wake-word experiment — pending
+
+Select an on-device keyword engine and obtain any required model/license. Verify wake detection while simultaneously playing audio, locked and backgrounded, without transcribing ambient speech or storing raw microphone audio. Measure false activations, battery consumption, Bluetooth routing and interruption handling. Do not expose an “always listening” switch until these checks pass and platform distribution requirements are confirmed.
