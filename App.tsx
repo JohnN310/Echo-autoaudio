@@ -1,6 +1,10 @@
 import React, { useEffect, useState } from "react";
-import { ActivityIndicator, Linking, Modal, View } from "react-native";
-import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
+import { ActivityIndicator, Linking, Modal } from "react-native";
+import {
+  SafeAreaProvider,
+  SafeAreaView,
+  initialWindowMetrics,
+} from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 import { EchoProvider, useEcho } from "./src/context/EchoContext";
 import { ListenScreen } from "./src/screens/ListenScreen";
@@ -26,9 +30,9 @@ function EchoApp() {
   }, [echo.ready]);
   if (!echo.ready)
     return (
-      <View style={[shared.screen, { justifyContent: "center" }]}>
+      <SafeAreaView style={[shared.screen, { justifyContent: "center" }]}>
         <ActivityIndicator color={colors.accent} />
-      </View>
+      </SafeAreaView>
     );
   return (
     <SafeAreaView style={shared.screen}>
@@ -49,24 +53,27 @@ function EchoApp() {
         presentationStyle="fullScreen"
         onRequestClose={() => setScreen(null)}
       >
-        <SafeAreaView style={shared.screen}>
-          {screen === "library" ? (
-            <LibraryScreen onClose={() => setScreen(null)} />
-          ) : screen === "create" ? (
-            <CreateScreen onClose={() => setScreen(null)} />
-          ) : screen === "preferences" ? (
-            <PreferencesScreen onClose={() => setScreen(null)} />
-          ) : screen === "voice" ? (
-            <VoiceInfoScreen onClose={() => setScreen(null)} />
-          ) : null}
-        </SafeAreaView>
+        {/* Native modals have their own window and must measure its safe area. */}
+        <SafeAreaProvider style={shared.screen}>
+          <SafeAreaView style={shared.screen}>
+            {screen === "library" ? (
+              <LibraryScreen onClose={() => setScreen(null)} />
+            ) : screen === "create" ? (
+              <CreateScreen onClose={() => setScreen(null)} />
+            ) : screen === "preferences" ? (
+              <PreferencesScreen onClose={() => setScreen(null)} />
+            ) : screen === "voice" ? (
+              <VoiceInfoScreen onClose={() => setScreen(null)} />
+            ) : null}
+          </SafeAreaView>
+        </SafeAreaProvider>
       </Modal>
     </SafeAreaView>
   );
 }
 export default function App() {
   return (
-    <SafeAreaProvider>
+    <SafeAreaProvider initialMetrics={initialWindowMetrics}>
       <EchoProvider>
         <EchoApp />
       </EchoProvider>

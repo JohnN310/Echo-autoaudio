@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Alert, AppState } from "react-native";
+import { Alert, AppState, Linking } from "react-native";
 import {
   ExpoSpeechRecognitionModule as Recognition,
   useSpeechRecognitionEvent,
@@ -92,17 +92,8 @@ export function useVoiceCommands() {
       return;
     }
     if (starting) return;
-    if (
-      !Recognition.isRecognitionAvailable() ||
-      !Recognition.supportsOnDeviceRecognition()
-    ) {
-      Alert.alert(
-        "Offline voice unavailable",
-        "This device needs an on-device English speech model. Echo will not send your voice to a cloud recognizer. Playback and headset controls still work.",
-      );
-      return;
-    }
     setStarting(true);
+    wasPlaying.current = false;
     try {
       const permission = await Recognition.requestPermissionsAsync();
       if (!permission.granted) {
@@ -110,6 +101,22 @@ export function useVoiceCommands() {
         Alert.alert(
           "Microphone access needed",
           "Enable microphone and speech permissions in Settings to use voice commands.",
+          [
+            { text: "Cancel", style: "cancel" },
+            { text: "Open Settings", onPress: () => void Linking.openSettings() },
+          ],
+        );
+        return;
+      }
+      if (
+        !Recognition.isRecognitionAvailable() ||
+        !Recognition.supportsOnDeviceRecognition()
+      ) {
+        setStarting(false);
+        setMessage("Offline voice unavailable on this device.");
+        Alert.alert(
+          "Offline voice unavailable",
+          "This device cannot currently run on-device speech recognition. If you are using an iOS simulator, test voice commands on a physical phone. On a phone, check speech recognition support and the downloaded English language model. Echo keeps voice recognition on-device; you can still use the playback buttons.",
         );
         return;
       }

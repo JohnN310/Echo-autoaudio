@@ -36,6 +36,14 @@ export function IconButton({
       <Ionicons
         name={icon}
         size={size}
+        style={{
+          width: size,
+          height: size,
+          lineHeight: size,
+          textAlign: "center",
+          includeFontPadding: false,
+          transform: [{ translateX: icon === "play" ? 2 : 0 }],
+        }}
         color={large ? colors.background : active ? colors.accent : colors.text}
       />
     </Pressable>

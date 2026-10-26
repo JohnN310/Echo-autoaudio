@@ -8,6 +8,8 @@ import React, {
 } from "react";
 import { Alert } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { Asset } from "expo-asset";
+import { queueSource } from "../domain/audioSource";
 import {
   setAudioModeAsync,
   useAudioPlaylist,
@@ -116,15 +118,17 @@ function useEchoState() {
         ? [...available.slice(at), ...available.slice(0, at)]
         : [choice, ...available];
     const nextQueue = library.preferences.autoplay ? ordered : [choice];
-    playlist.pause();
-    playlist.clear();
-    nextQueue.forEach((c) =>
-      playlist.add(
-        typeof c.source === "number"
-          ? { assetId: c.source, name: c.title }
-          : { uri: c.source, name: c.title },
-      ),
-    );
+    try {
+      const sources = nextQueue.map((c) =>
+        queueSource(c.source, c.title, (id) => Asset.fromModule(id)),
+      );
+      playlist.pause();
+      playlist.clear();
+      sources.forEach((source) => playlist.add(source));
+    } catch {
+      notify("Could not load the audio files. Please try again.");
+      return;
+    }
     playlist.loop = library.preferences.autoplay ? "all" : "none";
     setQueue(nextQueue);
     if (autoplay)
@@ -190,8 +194,14 @@ function useEchoState() {
   };
   const skip = (back = false) => {
     if (queue.length > 1) {
-      back ? playlist.previous() : playlist.next();
-      play();
+      void configurePlayback().then(() => {
+        back ? playlist.previous() : playlist.next();
+        const next = queue[playlist.currentIndex];
+        if (next) playlist.setActiveForLockScreen(true, {
+          title: next.title, artist: next.creator, albumTitle: "Echo",
+        });
+        playlist.play();
+      }).catch(() => notify("Could not change tracks. Please try again."));
       return;
     }
     const at = feed.findIndex((c) => c.id === current?.id);
