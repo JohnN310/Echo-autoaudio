@@ -8,6 +8,11 @@ const config: ExpoConfig = {
   userInterfaceStyle: "dark",
   platforms: ["ios", "android"],
   icon: "./assets/icon.png",
+  extra: {
+    eas: {
+      projectId: "28b14876-7764-4cd7-ab08-2d6cb00a3d2f",
+    },
+  },
   ios: {
     supportsTablet: false,
     bundleIdentifier: "com.echo.listening",
