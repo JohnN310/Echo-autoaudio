@@ -1,0 +1,5 @@
+{
+  "platforms": ["android", "apple"],
+  "apple": { "modules": ["EchoVoiceServiceModule"] },
+  "android": { "modules": ["expo.modules.echovoice.EchoVoiceServiceModule"] }
+}

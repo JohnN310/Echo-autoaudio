@@ -18,8 +18,9 @@ export function VoiceInfoScreen({ onClose }: { onClose: () => void }) {
           Less reaching.\nMore listening.
         </Text>
         <Text style={[shared.copy, { marginTop: 18, marginBottom: 24 }]}>
-          Tap the microphone, then say one command. Echo pauses your audio so it
-          can hear you clearly.
+          Enable hands-free once, then say “Hey Echo, skip” or say “Hey Echo”
+          and follow with a command within eight seconds. Audio keeps playing
+          while Echo waits for the wake phrase, and pauses when you address it.
         </Text>
         {[
           ["Play", "Start listening"],
@@ -28,6 +29,9 @@ export function VoiceInfoScreen({ onClose }: { onClose: () => void }) {
           ["Go back", "Return to the previous echo"],
           ["Save", "Keep this one for later"],
           ["Follow", "Hear more from this creator"],
+          ["Play science", "Choose a topic from the available audio"],
+          ["Play my saved echoes", "Listen to your saved collection"],
+          ["Cancel", "Drop this command and return to waiting"],
         ].map(([command, description]) => (
           <View
             key={command}
@@ -48,14 +52,20 @@ export function VoiceInfoScreen({ onClose }: { onClose: () => void }) {
           </View>
         ))}
         <Text style={[shared.copy, { marginTop: 26, fontSize: 13 }]}>
-          Voice commands run on-device when your phone supports offline English
-          recognition. Echo does not save transcripts or upload microphone
-          audio.
+          Hands-free uses on-device English speech recognition. The microphone
+          stays active until you turn it off; this uses more battery than normal
+          playback. Transcripts are processed temporarily and are not saved or
+          uploaded. Android requires version 13 or later, an installed English
+          (US) model, and headphones. iOS uses voice processing to reduce playback
+          feedback; headphones give the best results.
         </Text>
         <Text style={[shared.copy, { marginTop: 18, fontSize: 13 }]}>
-          “Hey Echo” wake-word activation while locked is not available yet.
-          Start your queue before driving; automatic playback and supported
-          headset or lock-screen media controls let your phone stay put.
+          Start hands-free while Echo is open. The session is designed to continue
+          when you switch apps or lock the phone. Tap the microphone card again
+          to cancel and turn it off, or use the Android notification’s stop action.
+          Force-closing Echo ends the session. Calls, microphone conflicts, and
+          system restrictions can also stop it; reopen Echo to enable it again.
+          Background behavior needs testing on your physical device.
         </Text>
       </ScrollView>
     </View>

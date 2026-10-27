@@ -11,7 +11,6 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Asset } from "expo-asset";
 import { queueSource } from "../domain/audioSource";
 import {
-  setAudioModeAsync,
   useAudioPlaylist,
   useAudioPlaylistStatus,
 } from "expo-audio";
@@ -24,14 +23,9 @@ import {
   VoiceCommand,
 } from "../domain/model";
 import { DEMO_CLIPS } from "../data/clips";
+import { configurePlayback } from "../services/audioSession";
+export { configurePlayback } from "../services/audioSession";
 
-export const configurePlayback = () =>
-  setAudioModeAsync({
-    playsInSilentMode: true,
-    shouldPlayInBackground: true,
-    allowsRecording: false,
-    interruptionMode: "doNotMix",
-  });
 function useEchoState() {
   const [library, setLibrary] = useState<Library>(EMPTY_LIBRARY),
     [ready, setReady] = useState(false),

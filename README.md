@@ -34,7 +34,7 @@ npx eas-cli build --profile development --platform ios
 - Native continuous audio playlist via `expo-audio`, bundled demo clips, seek, pause, skip, and previous.
 - iOS audio background mode and Android media playback foreground service configured. The queue lives in the native player; JavaScript timers do not advance tracks.
 - Lock-screen/notification metadata and native media controls. OS interruption behavior uses `doNotMix` so Echo does not intentionally play over higher-priority audio.
-- Explicit on-device voice command capture: **Play, Pause, Skip, Go back, Save, Follow**. Full-phrase matching avoids triggering on casual mentions. Saves/follows are idempotent voice actions.
+- Opt-in hands-free sessions using on-device English recognition, gated by **Hey Echo**. Controls: **Play, Pause, Skip, Go back, Save, Follow, Cancel**, plus play requests for available titles, creators, topics, and saved echoes. Saves/follows are idempotent.
 - Requires offline recognition support. No network-recognition fallback, persisted command recordings, or saved transcripts. English speech model availability is device-dependent.
 - Short onboarding, topic ranking, autoplay preference, creator follows, saved clips, search, deep links and native sharing.
 - Native microphone recording with a native 180-second limit; stop on app background; document-picker import; preview; metadata; local audio-library storage under the app's documents directory.
@@ -42,11 +42,13 @@ npx eas-cli build --profile development --platform ios
 
 ## Voice and hands-free boundaries
 
-The microphone control activates **one foreground command session**, limited to ten seconds. Playback pauses during recognition to avoid recognizing its own audio. “Hey Echo” is accepted as an optional prefix after activation; it is **not** an implemented wake-word detector.
+The microphone card enables a session, then listens for **Hey Echo** while playback continues. Say “Hey Echo, skip” in one utterance, or say “Hey Echo” followed by a command within eight seconds. Playback pauses after wake detection. A final transcript is required before an action executes. Tapping the card again immediately cancels pending commands, invalidates in-flight permission requests, and stops the microphone. Opening Create also stops the session before allowing recording.
 
-Always-listening, private wake-word detection while locked is not implemented or claimed. Do not substitute continuous cloud transcription for a local wake engine. The next technical experiment is a real on-device wake engine in a development build, tested alongside playback and Bluetooth on physical iOS/Android devices. That experiment needs a chosen native engine, applicable model/license, and physical devices.
+This is an **experimental continuous on-device speech implementation**, not a dedicated low-power keyword model. It temporarily transcribes ambient speech locally to check for the wake phrase, without persisting or uploading audio/transcripts. It uses more battery than playback alone. Speaker identity cannot be authenticated by a wake phrase. iOS voice processing reduces playback feedback; Android requires headphones because its recognizer does not guarantee echo cancellation. No cloud recognition fallback is enabled.
 
-Start playback before driving. Automatic native queueing and supported headset/lock-screen controls are the hands-free path currently implemented. No special commute/sleep modes have been added.
+Background sessions must be enabled while Echo is visible. iOS retains its audio background mode and a play-and-record session; Android 13+ uses the local `echo-voice-service` microphone foreground service with a visible notification and stop action. The Android service holds a wake lock only for the enabled session and never restarts after process death. Force-closing the app ends hands-free; calls, microphone conflicts, and OS resource restrictions may also end it. Sessions are not persisted or enabled on launch. A fresh native build is required, especially on Android; Expo Go does not contain the service.
+
+Native background recognition, Bluetooth behavior, cancellation of the actual microphone, false activations, and battery consumption **have not been verified on devices**. See `DEVICE_TESTS.md` before treating this as commute-ready. Recognition has short gaps when native requests restart. Requests can play only audio already in the app's catalog; this does not search Spotify, YouTube, or the internet.
 
 ## Data and community boundaries
 
@@ -73,7 +75,10 @@ See [DEVICE_TESTS.md](DEVICE_TESTS.md) for the remaining device acceptance check
 
 - `src/screens/ListenScreen.tsx`: single-screen listening UI.
 - `src/context/EchoContext.tsx`: native queue, media session, local state, and actions.
-- `src/services/useVoiceCommands.ts`: private foreground speech lifecycle.
+- `src/services/useVoiceCommands.ts`: recognition, playback, and native-service adapter.
+- `src/services/VoiceSession.ts`: cancellable hands-free session and wake/command lifecycle.
+- `src/domain/voiceRequest.ts`: wake phrase and content-request matching.
+- `modules/echo-voice-service`: Android microphone foreground service and iOS English offline-capability check.
 - `src/domain/model.ts`: command parser and ranking rules.
 - `src/screens/CreateScreen.tsx`: record, import, preview, and local publish.
 - `app.config.ts`: Android/iOS native permissions and background playback settings.

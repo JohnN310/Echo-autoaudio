@@ -39,7 +39,7 @@ const config: ExpoConfig = {
       "expo-speech-recognition",
       {
         microphonePermission:
-          "Allow Echo to hear a voice command when you activate the microphone.",
+          "Allow Echo to listen for Hey Echo during a hands-free session, including while your phone is locked.",
         speechRecognitionPermission:
           "Allow Echo to recognize short playback commands on this device.",
       },

@@ -11,8 +11,11 @@ Test a development build on an iPhone and an Android phone, using speaker, Bluet
 | Lock screen | Play/pause, next/previous, seek where available; metadata follows the current clip. |
 | Interruptions | Navigation instruction, call, Siri/Assistant and alarm; Echo pauses/ducks appropriately, never overwhelms navigation. Verify resumption separately on both platforms. |
 | Bluetooth | Headset buttons, reconnect, car route changes, disconnection. Disconnect must not unexpectedly blast audio from phone speakers. |
-| Voice | Activate, then say each of six commands. Confirm only one action per utterance, short recognition window, no unwanted extra skip. |
-| Privacy | Airplane mode plus installed offline English model works. Missing model fails gracefully; no network-recognition fallback. Backgrounding cancels command capture. |
+| Voice | Enable hands-free; say Hey Echo + each command, including topic/title/saved playback. Confirm exactly one action per utterance and return to waiting. Test standalone Hey Echo then a command within eight seconds. Unprefixed commands outside this window must do nothing. |
+| Cancellation | Cancel during permission, startup, interim speech, final result, and between native cycles. UI must reset immediately, pending actions must not run, and the OS microphone indicator must go off. Repeat enable/cancel rapidly. |
+| Privacy | Airplane mode plus installed offline English model works. Missing model fails gracefully; no network-recognition fallback. Confirm no persisted audio or transcripts. |
+| Background voice | Start while visible, switch apps, lock for 15 minutes, then say Hey Echo skip/pause/play. Test with audio playing and paused. Force-close and confirm the mic/service stop and do not restart. |
+| Android service | Fresh Android 13+ native build; notification visible while enabled, stop action turns mic off, headphones required, disconnection ends session. Verify foreground-service permissions and wake-lock release. |
 | Save/follow | Repeat the command twice; item remains saved/followed. No toggling back off. |
 | Unknown speech | “Do not play”, conversational sentences and silence never trigger an action. |
 | Permissions | Deny mic/speech permissions, retry, and restore in Settings. Playback remains usable. |
@@ -21,6 +24,6 @@ Test a development build on an iPhone and an Android phone, using speaker, Bluet
 | Persistence | Preferences, saved clips, follows and local audio survive restart. |
 | Accessibility | VoiceOver/TalkBack, large text, smallest supported phone screen; primary controls remain reachable and labeled. |
 
-## Wake-word experiment — pending
+## Hands-free acceptance — pending
 
-Select an on-device keyword engine and obtain any required model/license. Verify wake detection while simultaneously playing audio, locked and backgrounded, without transcribing ambient speech or storing raw microphone audio. Measure false activations, battery consumption, Bluetooth routing and interruption handling. Do not expose an “always listening” switch until these checks pass and platform distribution requirements are confirmed.
+The current implementation uses continuous on-device speech with a wake-phrase gate, not a low-power keyword model. Verify wake detection while simultaneously playing audio, locked and backgrounded. Play clips containing the words “Hey Echo skip” and confirm playback does not trigger actions; test speaker echo cancellation on iOS and headphones on Android. Measure battery consumption, recognition gaps, Bluetooth routing, interruptions, and OS termination. Until physical-device checks pass, this remains an experimental hands-free feature. Distribution requirements must be reviewed before store release.

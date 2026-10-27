@@ -140,14 +140,14 @@ export function ListenScreen({
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={
-            busy ? "Cancel voice command" : "Activate on-device voice command"
+            voice.enabled ? "Cancel command and turn microphone off" : "Enable Hey Echo hands-free session"
           }
           onPress={() => void voice.activate()}
-          style={[s.voice, busy && { borderColor: colors.accent }]}
+          style={[s.voice, voice.enabled && { borderColor: colors.accent }]}
         >
           <View style={s.mic}>
             <Ionicons
-              name={busy ? "mic" : "mic-outline"}
+              name={voice.enabled ? "mic" : "mic-outline"}
               size={23}
               color={colors.accent}
             />
@@ -158,11 +158,11 @@ export function ListenScreen({
                 ? "Getting ready…"
                 : voice.listening
                   ? "Say a command"
-                  : "Your voice. Your controls."}
+                  : voice.enabled ? "Waiting for Hey Echo" : "Enable hands-free"}
             </Text>
             <Text style={s.voiceCaption}>{voice.message}</Text>
           </View>
-          {busy && <Ionicons name="close" color={colors.muted} size={20} />}
+          {voice.enabled && <Ionicons name="close" color={colors.muted} size={20} />}
         </Pressable>
         <Pressable
           accessibilityRole="button"
@@ -189,7 +189,7 @@ export function ListenScreen({
         <Pressable
           accessibilityRole="button"
           disabled={busy}
-          onPress={onCreate}
+          onPress={() => { void voice.cancel().then(onCreate); }}
           style={s.bottomButton}
         >
           <Ionicons name="add-circle-outline" size={20} color={colors.muted} />

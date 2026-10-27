@@ -1,157 +1,150 @@
 import { useEffect, useRef, useState } from "react";
-import { Alert, AppState, Linking } from "react-native";
+import { AppState, PermissionsAndroid, Platform } from "react-native";
+import { NativeModule, requireOptionalNativeModule } from "expo";
 import {
   ExpoSpeechRecognitionModule as Recognition,
   useSpeechRecognitionEvent,
 } from "expo-speech-recognition";
-import * as Haptics from "expo-haptics";
-import * as Speech from "expo-speech";
-import { parseCommand, VoiceCommand } from "../domain/model";
-import { configurePlayback, useEcho } from "../context/EchoContext";
+import { useEcho } from "../context/EchoContext";
+import { requestedClips } from "../domain/voiceRequest";
+import { VoiceSession, VoiceState } from "./VoiceSession";
+import { configurePlayback, setVoiceAudioActive } from "./audioSession";
+
+declare class BackgroundVoiceModule extends NativeModule<{ stopped: () => void }> {
+  start(): Promise<void>;
+  stop(): void;
+  hasHeadphones(): boolean;
+  supportsEnglishRecognition(): boolean;
+}
+const background = requireOptionalNativeModule<BackgroundVoiceModule>("EchoVoiceService");
+const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+async function waitForIdle() {
+  for (let attempt = 0; attempt < 30; attempt++) {
+    if (await Recognition.getStateAsync() === "inactive") return;
+    await delay(100);
+  }
+  Recognition.abort();
+  throw new Error("Microphone is still stopping. Please try again.");
+}
 
 export function useVoiceCommands() {
   const echo = useEcho();
-  const [listening, setListening] = useState(false),
-    [starting, setStarting] = useState(false),
-    [message, setMessage] = useState("Tap once. Say a command.");
-  const active = useRef(false),
-    pending = useRef<VoiceCommand | null>(null),
-    wasPlaying = useRef(false),
-    timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  useSpeechRecognitionEvent("start", () => {
-    setStarting(false);
-    setListening(true);
-    setMessage("Listening…");
-    void Haptics.selectionAsync();
+  const echoRef = useRef(echo);
+  useEffect(() => { echoRef.current = echo; }, [echo]);
+  const [state, setState] = useState<VoiceState>({
+    phase: "off", message: "Enable hands-free. Say “Hey Echo”.",
   });
-  useSpeechRecognitionEvent("result", (event) => {
-    if (!active.current || !event.isFinal) return;
-    pending.current = parseCommand(event.results[0]?.transcript || "");
-    setMessage(
-      pending.current
-        ? `“${pending.current}”`
-        : "Try play, pause, skip, go back, save, or follow.",
-    );
-    Recognition.stop();
-  });
-  useSpeechRecognitionEvent("error", (event) => {
-    if (event.error !== "aborted")
-      setMessage(
-        event.error === "no-speech"
-          ? "Nothing heard. Tap to try again."
-          : "Voice is unavailable. Check your offline speech language in device settings.",
-      );
-  });
-  useSpeechRecognitionEvent("end", () => {
-    if (!active.current) return;
-    active.current = false;
-    setListening(false);
-    setStarting(false);
-    clearTimeout(timer.current);
-    const cmd = pending.current;
-    pending.current = null;
-    void configurePlayback()
-      .then(() => {
-        if (cmd) {
-          const response = echo.command(cmd);
-          setMessage(response);
-          if (cmd === "save" || cmd === "follow") {
-            Speech.speak(response, {
-              onDone: () => {
-                if (wasPlaying.current) echo.play();
-              },
-              onError: () => {
-                if (wasPlaying.current) echo.play();
-              },
-            });
-          }
-        } else if (wasPlaying.current && AppState.currentState === "active")
-          echo.play();
-      })
-      .catch(() => setMessage("Tap play to resume your listening."));
-  });
-  useEffect(() => {
-    const sub = AppState.addEventListener("change", (state) => {
-      if (state !== "active" && active.current) {
-        pending.current = null;
-        wasPlaying.current = false;
-        Recognition.abort();
+  // The initializer only stores callbacks; echoRef is read later by native events.
+  // eslint-disable-next-line react-hooks/refs
+  const [session] = useState(() => new VoiceSession({
+    update: setState,
+    authorize: async (isCurrent) => {
+      if (AppState.currentState !== "active") throw new Error("Open Echo to enable hands-free.");
+      if (!background) throw new Error("Install a new native Echo build to use hands-free.");
+      if (Platform.OS === "android" && Number(Platform.Version) < 33)
+        throw new Error("Hands-free needs Android 13 or later.");
+      const permission = Platform.OS === "ios"
+        ? await Recognition.requestMicrophonePermissionsAsync()
+        : await Recognition.requestPermissionsAsync();
+      if (!isCurrent()) return;
+      if (!permission.granted)
+        throw new Error("Allow microphone access in Settings, then try again.");
+      const supported = Platform.OS === "ios" ? background.supportsEnglishRecognition()
+        : Recognition.isRecognitionAvailable() && Recognition.supportsOnDeviceRecognition();
+      if (!supported)
+        throw new Error("Offline voice unavailable. Use a supported physical phone with English speech recognition.");
+      if (Platform.OS === "android") {
+        const { installedLocales } = await Recognition.getSupportedLocales({});
+        if (!isCurrent()) return;
+        if (!installedLocales.some((locale) => locale.toLowerCase().replace("_", "-") === "en-us"))
+          throw new Error("Download the English (US) offline speech model in your device speech settings first.");
+        if (!background?.hasHeadphones())
+          throw new Error("Connect headphones for Android hands-free to reduce playback feedback.");
+        const notification = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS);
+        if (!isCurrent()) return;
+        if (notification !== PermissionsAndroid.RESULTS.GRANTED)
+          throw new Error("Allow notifications so hands-free has a visible microphone stop control.");
       }
-    });
-    return () => {
-      sub.remove();
-      clearTimeout(timer.current);
-      Recognition.abort();
-      Speech.stop();
-    };
-  }, []);
-  async function activate() {
-    if (active.current) {
-      pending.current = null;
-      Recognition.abort();
-      return;
-    }
-    if (starting) return;
-    setStarting(true);
-    wasPlaying.current = false;
-    try {
-      const permission = await Recognition.requestPermissionsAsync();
-      if (!permission.granted) {
-        setStarting(false);
-        Alert.alert(
-          "Microphone access needed",
-          "Enable microphone and speech permissions in Settings to use voice commands.",
-          [
-            { text: "Cancel", style: "cancel" },
-            { text: "Open Settings", onPress: () => void Linking.openSettings() },
-          ],
-        );
-        return;
-      }
-      if (
-        !Recognition.isRecognitionAvailable() ||
-        !Recognition.supportsOnDeviceRecognition()
-      ) {
-        setStarting(false);
-        setMessage("Offline voice unavailable on this device.");
-        Alert.alert(
-          "Offline voice unavailable",
-          "This device cannot currently run on-device speech recognition. If you are using an iOS simulator, test voice commands on a physical phone. On a phone, check speech recognition support and the downloaded English language model. Echo keeps voice recognition on-device; you can still use the playback buttons.",
-        );
-        return;
-      }
-      await Speech.stop();
-      wasPlaying.current = echo.playlist.playing;
-      echo.playlist.pause();
-      pending.current = null;
-      active.current = true;
-      Recognition.start({
-        lang: "en-US",
-        requiresOnDeviceRecognition: true,
-        continuous: false,
-        interimResults: false,
-        maxAlternatives: 1,
-        contextualStrings: [
-          "play",
-          "pause",
-          "skip",
-          "go back",
-          "save",
-          "follow",
-        ],
-        recordingOptions: { persist: false },
-      });
-      timer.current = setTimeout(() => {
-        if (active.current) Recognition.stop();
-      }, 10000);
-    } catch {
-      active.current = false;
-      setStarting(false);
-      setListening(false);
-      setMessage("Could not start offline voice recognition.");
+    },
+    prepare: async () => {
+      if (AppState.currentState !== "active") throw new Error("Open Echo to enable hands-free.");
+      if (Platform.OS === "android") await background!.start();
+      setVoiceAudioActive(true);
       await configurePlayback();
-      if (wasPlaying.current) echo.play();
-    }
-  }
-  return { listening, starting, message, activate };
+    },
+    release: async () => {
+      if (Platform.OS === "android") background?.stop();
+      setVoiceAudioActive(false);
+      await configurePlayback();
+    },
+    start: () => Recognition.start({
+      lang: "en-US",
+      requiresOnDeviceRecognition: true,
+      continuous: true,
+      interimResults: true,
+      maxAlternatives: 1,
+      contextualStrings: ["Hey Echo", "play", "pause", "skip", "go back", "save", "follow", "cancel", "play my saved echoes"],
+      recordingOptions: { persist: false },
+      iosVoiceProcessingEnabled: true,
+      iosCategory: {
+        category: "playAndRecord", mode: "voiceChat",
+        categoryOptions: ["defaultToSpeaker", "allowBluetooth"],
+      },
+    }),
+    finish: () => Recognition.stop(),
+    abort: () => Recognition.abort(),
+    idle: waitForIdle,
+    pause: () => {
+      const playing = echoRef.current.playlist.playing;
+      echoRef.current.playlist.pause();
+      return playing;
+    },
+    resume: () => echoRef.current.play(),
+    execute: (request) => {
+      const current = echoRef.current;
+      const response = (message: string, resume: boolean) => {
+        current.notify(message);
+        return { message, resume };
+      };
+      if (request.kind === "control") {
+        if (request.command === "cancel") return response("Command canceled", true);
+        return response(current.command(request.command),
+          request.command === "save" || request.command === "follow");
+      }
+      const matches = requestedClips(request.query, current.allClips, current.library);
+      if (!matches.length) return response("No matching audio in your library", true);
+      current.start(matches[0], true, matches);
+      return response(`Playing ${matches[0].title}`, false);
+    },
+  }));
+
+  useSpeechRecognitionEvent("start", () => session.onStart());
+  useSpeechRecognitionEvent("result", (event) => session.onResult(event.results[0]?.transcript || "", event.isFinal));
+  useSpeechRecognitionEvent("error", (event) => session.onError(event.error));
+  useSpeechRecognitionEvent("end", () => session.onEnd());
+
+  useEffect(() => {
+    const subscription = Platform.OS === "android" ? background?.addListener("stopped", () => {
+      void session.disable("Hands-free stopped from the notification.");
+    }) : undefined;
+    const routeCheck = Platform.OS === "android" ? setInterval(() => {
+      if (session.state.phase !== "off" && !background?.hasHeadphones())
+        void session.disable("Headphones disconnected. Hands-free is off.");
+    }, 1000) : undefined;
+    return () => {
+      subscription?.remove();
+      clearInterval(routeCheck);
+      void session.disable();
+    };
+  }, [session]);
+
+  return {
+    ...state,
+    enabled: state.phase !== "off",
+    listening: state.phase === "command",
+    starting: state.phase === "starting",
+    activate: () => state.phase === "off" ? session.enable() : session.disable(),
+    cancel: () => session.disable(),
+  };
 }
