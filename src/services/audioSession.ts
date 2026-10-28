@@ -1,12 +1,12 @@
 import { setAudioModeAsync } from "expo-audio";
+import { AudioSessionOwner } from "./AudioSessionOwner";
 
-let voiceActive = false;
-export function setVoiceAudioActive(active: boolean) { voiceActive = active; }
-
-export const configurePlayback = () => setAudioModeAsync({
+const owner = new AudioSessionOwner((recording) => setAudioModeAsync({
   playsInSilentMode: true,
   shouldPlayInBackground: true,
-  allowsRecording: voiceActive,
-  allowsBackgroundRecording: voiceActive,
+  allowsRecording: recording,
+  allowsBackgroundRecording: recording,
   interruptionMode: "doNotMix",
-});
+}));
+export const setVoiceAudioActive = (active: boolean) => owner.setVoiceActive(active);
+export const configurePlayback = () => owner.configure();

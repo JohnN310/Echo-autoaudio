@@ -46,9 +46,25 @@ The microphone card enables a session, then listens for **Hey Echo** while playb
 
 This is an **experimental continuous on-device speech implementation**, not a dedicated low-power keyword model. It temporarily transcribes ambient speech locally to check for the wake phrase, without persisting or uploading audio/transcripts. It uses more battery than playback alone. Speaker identity cannot be authenticated by a wake phrase. iOS voice processing reduces playback feedback; Android requires headphones because its recognizer does not guarantee echo cancellation. No cloud recognition fallback is enabled.
 
-Background sessions must be enabled while Echo is visible. iOS retains its audio background mode and a play-and-record session; Android 13+ uses the local `echo-voice-service` microphone foreground service with a visible notification and stop action. The Android service holds a wake lock only for the enabled session and never restarts after process death. Force-closing the app ends hands-free; calls, microphone conflicts, and OS resource restrictions may also end it. Sessions are not persisted or enabled on launch. A fresh native build is required, especially on Android; Expo Go does not contain the service.
+Background sessions must be enabled while Echo is visible. iOS uses a persistent native `AVAudioEngine` tap in `EchoMicrophone.swift`: waking, commands, paused playback, and speech-request renewal do not stop capture. Request renewal and silence timers run natively; up to two seconds of audio is held temporarily in memory while a request finishes, then replayed into its replacement. Voice processing is enabled before measuring the microphone format. Playback calls reuse the established voice audio session instead of changing its category/mode during capture. Android 13+ uses the local `echo-voice-service` microphone foreground service with a visible notification and stop action. The Android service holds a wake lock only for the enabled session and never restarts after process death. Force-closing the app ends hands-free; calls, microphone conflicts, and OS resource restrictions may also end it. Sessions are not persisted or enabled on launch. A fresh native build is required on both platforms; Expo Go does not contain the service.
 
-Native background recognition, Bluetooth behavior, cancellation of the actual microphone, false activations, and battery consumption **have not been verified on devices**. See `DEVICE_TESTS.md` before treating this as commute-ready. Recognition has short gaps when native requests restart. Requests can play only audio already in the app's catalog; this does not search Spotify, YouTube, or the internet.
+Native background recognition, Bluetooth behavior, cancellation of the actual microphone, false activations, and battery consumption **have not been verified on devices**. See `DEVICE_TESTS.md` before treating this as commute-ready. Recognition can have gaps during OS request renewal even though iOS microphone capture is retained. Requests can play only audio already in the app's catalog; this does not search Spotify, YouTube, or the internet.
+
+### Rebuild and test on a Mac/iPhone
+
+From the repository root (the folder containing `package.json`):
+
+```sh
+git pull
+npm ci
+npx expo prebuild --platform ios
+npx pod-install
+open ios/Echo.xcworkspace
+```
+
+In Xcode select the physical iPhone and your signing team. For background acceptance, choose Product > Scheme > Edit Scheme > Run > Build Configuration > **Release**, then build/run. A Release build embeds its JavaScript/audio and does not rely on Metro or the Mac staying awake. Do not use `--clean` on prebuild if you need to retain local Xcode signing changes. Debug builds need a reachable Metro server; a `*.local:8081` DNS timeout or “JS runtime has been lost” is not evidence of a microphone permission problem. If the latter also happens in Release, collect the earlier crash/error log; that message by itself does not identify the original failure.
+
+The new iOS path bypasses the third-party `start()` bridge that returned an unsupported Swift `Task`. All our native control methods return an explicit `Void`, string, or promise result. iOS errors now include a reason in the microphone card and an `[Echo voice]` line in the console, without logging transcripts.
 
 ## Data and community boundaries
 
@@ -78,7 +94,7 @@ See [DEVICE_TESTS.md](DEVICE_TESTS.md) for the remaining device acceptance check
 - `src/services/useVoiceCommands.ts`: recognition, playback, and native-service adapter.
 - `src/services/VoiceSession.ts`: cancellable hands-free session and wake/command lifecycle.
 - `src/domain/voiceRequest.ts`: wake phrase and content-request matching.
-- `modules/echo-voice-service`: Android microphone foreground service and iOS English offline-capability check.
+- `modules/echo-voice-service`: Android microphone foreground service and persistent iOS capture/recognition engine.
 - `src/domain/model.ts`: command parser and ranking rules.
 - `src/screens/CreateScreen.tsx`: record, import, preview, and local publish.
 - `app.config.ts`: Android/iOS native permissions and background playback settings.

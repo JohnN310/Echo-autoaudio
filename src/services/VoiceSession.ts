@@ -6,10 +6,11 @@ export type VoiceState = {
   message: string;
 };
 export interface VoiceDriver {
+  continuousCapture?: boolean;
   authorize(isCurrent: () => boolean): Promise<void>;
   prepare(): Promise<void>;
   release(): Promise<void>;
-  start(): void;
+  start(): void | Promise<void>;
   finish(): void;
   abort(): void;
   idle(): Promise<void>;
@@ -117,10 +118,18 @@ export class VoiceSession {
     this.startedAt = Date.now();
     this.update(this.awaitingCommand ? "command" : "wake",
       this.awaitingCommand ? "Say a command. Tap to turn the mic off." : "Say “Hey Echo”. Tap to turn the mic off.");
-    try { this.driver.start(); }
+    const generation = this.generation;
+    try {
+      const starting = this.driver.start();
+      if (starting) void starting.catch((error: unknown) => {
+        if (this.enabled && generation === this.generation)
+          void this.disable(error instanceof Error ? error.message : "Could not start the microphone.");
+      });
+    }
     catch { void this.disable("Could not start offline voice. Tap to retry."); return; }
     // Bounded recognizer requests avoid relying on an unlimited OS speech task.
-    this.cycleTimer = setTimeout(() => this.finishCycle(), this.awaitingCommand ? 8000 : 45000);
+    if (!this.driver.continuousCapture)
+      this.cycleTimer = setTimeout(() => this.finishCycle(), this.awaitingCommand ? 8000 : 45000);
   }
 
   onStart() {
@@ -132,6 +141,7 @@ export class VoiceSession {
     if (text.trim()) this.hadSpeech = true;
     const afterWake = wakeCommand(text);
     if (!this.awaitingCommand && afterWake === null) {
+      if (this.driver.continuousCapture) return;
       if (final) this.finishCycle();
       else this.settle(text);
       return;
@@ -160,6 +170,8 @@ export class VoiceSession {
   }
 
   private settle(text: string) {
+    // iOS delivers utterance boundaries natively while keeping its engine alive.
+    if (this.driver.continuousCapture) return;
     if (text === this.lastPartial) return;
     this.lastPartial = text;
     clearTimeout(this.settleTimer);
@@ -176,6 +188,26 @@ export class VoiceSession {
   private carryWake = false;
   private finishCycle(carryWake = false) {
     if (!this.enabled || !this.accepting) return;
+    if (this.driver.continuousCapture) {
+      clearTimeout(this.cycleTimer);
+      if (carryWake) {
+        this.cycleTimer = setTimeout(() => this.finishCycle(), 8000);
+        return;
+      }
+      const request = this.pending;
+      this.pending = null;
+      this.awaitingCommand = false;
+      this.wakeConfirmed = false;
+      try {
+        const result = request ? this.driver.execute(request) : null;
+        if ((!result || result.resume) && this.resumeAfterCommand) this.driver.resume();
+        this.resumeAfterCommand = false;
+        this.update("wake", result ? `${result.message}. Say “Hey Echo” again.` : "Say “Hey Echo”. Tap to turn the mic off.");
+      } catch {
+        void this.disable("Could not run that command. Tap to retry.");
+      }
+      return;
+    }
     this.accepting = false;
     this.carryWake = carryWake;
     clearTimeout(this.cycleTimer);
@@ -204,6 +236,10 @@ export class VoiceSession {
 
   onEnd() {
     if (!this.enabled || !this.nativeCycleOpen) return;
+    if (this.driver.continuousCapture) {
+      void this.disable("Microphone capture ended. Reopen Echo to enable it again.");
+      return;
+    }
     this.nativeCycleOpen = false;
     this.accepting = false;
     this.clearTimers();

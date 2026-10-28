@@ -10,7 +10,17 @@ import { requestedClips } from "../domain/voiceRequest";
 import { VoiceSession, VoiceState } from "./VoiceSession";
 import { configurePlayback, setVoiceAudioActive } from "./audioSession";
 
-declare class BackgroundVoiceModule extends NativeModule<{ stopped: () => void }> {
+declare class BackgroundVoiceModule extends NativeModule<{
+  stopped: () => void;
+  voiceStart: () => void;
+  voiceEnd: () => void;
+  voiceResult: (event: { transcript: string; isFinal: boolean; utteranceId: number }) => void;
+  voiceError: (event: { error: string; message: string }) => void;
+}> {
+  continuousCaptureVersion?: number;
+  startRecognition(): Promise<void>;
+  stopRecognition(): Promise<void>;
+  getRecognitionState(): Promise<string>;
   start(): Promise<void>;
   stop(): void;
   hasHeadphones(): boolean;
@@ -21,10 +31,14 @@ const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
 
 async function waitForIdle() {
   for (let attempt = 0; attempt < 30; attempt++) {
-    if (await Recognition.getStateAsync() === "inactive") return;
+    const state = Platform.OS === "ios"
+      ? await background?.getRecognitionState?.() ?? "inactive"
+      : await Recognition.getStateAsync();
+    if (state === "inactive") return;
     await delay(100);
   }
-  Recognition.abort();
+  if (Platform.OS === "ios") await background?.stopRecognition?.();
+  else Recognition.abort();
   throw new Error("Microphone is still stopping. Please try again.");
 }
 
@@ -38,10 +52,13 @@ export function useVoiceCommands() {
   // The initializer only stores callbacks; echoRef is read later by native events.
   // eslint-disable-next-line react-hooks/refs
   const [session] = useState(() => new VoiceSession({
+    continuousCapture: Platform.OS === "ios",
     update: setState,
     authorize: async (isCurrent) => {
       if (AppState.currentState !== "active") throw new Error("Open Echo to enable hands-free.");
       if (!background) throw new Error("Install a new native Echo build to use hands-free.");
+      if (Platform.OS === "ios" && background.continuousCaptureVersion !== 1)
+        throw new Error("Rebuild Echo in Xcode to install continuous background microphone support.");
       if (Platform.OS === "android" && Number(Platform.Version) < 33)
         throw new Error("Hands-free needs Android 13 or later.");
       const permission = Platform.OS === "ios"
@@ -78,7 +95,14 @@ export function useVoiceCommands() {
       setVoiceAudioActive(false);
       await configurePlayback();
     },
-    start: () => Recognition.start({
+    start: () => {
+      if (Platform.OS === "ios") {
+        return background!.startRecognition().catch((error: unknown) => {
+          console.warn("[Echo voice] Native microphone start failed", error);
+          throw error;
+        });
+      }
+      Recognition.start({
       lang: "en-US",
       requiresOnDeviceRecognition: true,
       continuous: true,
@@ -91,9 +115,16 @@ export function useVoiceCommands() {
         category: "playAndRecord", mode: "voiceChat",
         categoryOptions: ["defaultToSpeaker", "allowBluetooth"],
       },
-    }),
+      });
+    },
     finish: () => Recognition.stop(),
-    abort: () => Recognition.abort(),
+    abort: () => {
+      if (Platform.OS === "ios") {
+        void background?.stopRecognition?.().catch((error: unknown) => {
+          console.warn("[Echo voice] Native microphone stop failed", error);
+        });
+      } else Recognition.abort();
+    },
     idle: waitForIdle,
     pause: () => {
       const playing = echoRef.current.playlist.playing;
@@ -119,12 +150,30 @@ export function useVoiceCommands() {
     },
   }));
 
-  useSpeechRecognitionEvent("start", () => session.onStart());
-  useSpeechRecognitionEvent("result", (event) => session.onResult(event.results[0]?.transcript || "", event.isFinal));
-  useSpeechRecognitionEvent("error", (event) => session.onError(event.error));
-  useSpeechRecognitionEvent("end", () => session.onEnd());
+  useSpeechRecognitionEvent("start", () => { if (Platform.OS !== "ios") session.onStart(); });
+  useSpeechRecognitionEvent("result", (event) => {
+    if (Platform.OS !== "ios") session.onResult(event.results[0]?.transcript || "", event.isFinal);
+  });
+  useSpeechRecognitionEvent("error", (event) => {
+    if (Platform.OS !== "ios") session.onError(event.error);
+  });
+  useSpeechRecognitionEvent("end", () => { if (Platform.OS !== "ios") session.onEnd(); });
 
   useEffect(() => {
+    let lastFinal = -1;
+    const nativeSubscriptions = Platform.OS === "ios" && background?.continuousCaptureVersion === 1 ? [
+      background.addListener("voiceStart", () => { session.onStart(); }),
+      background.addListener("voiceResult", (event) => {
+        if (event.utteranceId <= lastFinal) return;
+        if (event.isFinal) lastFinal = event.utteranceId;
+        session.onResult(event.transcript, event.isFinal);
+      }),
+      background.addListener("voiceError", (event) => {
+        console.warn(`[Echo voice] ${event.error}: ${event.message}`);
+        void session.disable(`Microphone stopped (${event.error}). ${event.message}`);
+      }),
+      background.addListener("voiceEnd", () => session.onEnd()),
+    ] : [];
     const subscription = Platform.OS === "android" ? background?.addListener("stopped", () => {
       void session.disable("Hands-free stopped from the notification.");
     }) : undefined;
@@ -133,6 +182,7 @@ export function useVoiceCommands() {
         void session.disable("Headphones disconnected. Hands-free is off.");
     }, 1000) : undefined;
     return () => {
+      nativeSubscriptions.forEach((subscription) => subscription.remove());
       subscription?.remove();
       clearInterval(routeCheck);
       void session.disable();

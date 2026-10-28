@@ -153,3 +153,58 @@ test("content selection honors saved and hidden clips, topics, and titles", () =
     assert.deepEqual(requestedClips(query, clips, library).map((c) => c.id), ["moon"]);
   assert.deepEqual(requestedClips("missing song", clips, library), []);
 });
+
+test("continuous iOS capture stays open through wake, command, and prolonged paused playback", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+  const { session, calls } = harness({ continuousCapture: true, pause: () => false });
+  await session.enable();
+  t.mock.timers.tick(180000);
+  assert.equal(calls.abort, 0);
+  session.onResult("Hey Echo", true);
+  assert.equal(session.state.phase, "command");
+  assert.equal(calls.abort, 0);
+  session.onResult("play", true);
+  assert.deepEqual(calls.commands, [{ kind: "control", command: "play" }]);
+  assert.equal(session.state.phase, "wake");
+  t.mock.timers.tick(180000);
+  session.onResult("Hey Echo pause", true);
+  assert.equal(calls.commands.length, 2);
+  assert.equal(calls.start, 1);
+  assert.equal(calls.abort, 0);
+  await session.disable();
+  assert.equal(calls.abort, 1);
+});
+
+test("continuous capture ignores ambient speech and resumes after command timeout without stopping mic", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+  const { session, calls } = harness({ continuousCapture: true });
+  await session.enable();
+  session.onResult("Hi Echo", true);
+  session.onResult("ordinary background speech", true);
+  assert.equal(calls.pause, 0);
+  session.onResult("Hey Echo", true);
+  t.mock.timers.tick(8000);
+  assert.equal(session.state.phase, "wake");
+  assert.equal(calls.resume, 1);
+  assert.equal(calls.abort, 0);
+  session.onResult("skip", true);
+  assert.equal(calls.commands.length, 0);
+  await session.disable();
+});
+
+test("real iOS capture end disables hands-free instead of restarting from background JS", async () => {
+  const { session, calls } = harness({ continuousCapture: true });
+  await session.enable();
+  session.onEnd();
+  await flush();
+  assert.equal(session.state.phase, "off");
+  assert.equal(calls.start, 1);
+});
+
+test("native async startup rejection clears the mic state and reports the reason", async () => {
+  const { session } = harness({ continuousCapture: true, start: async () => { throw new Error("Input route unavailable"); } });
+  await session.enable();
+  await flush();
+  assert.equal(session.state.phase, "off");
+  assert.match(session.state.message, /Input route unavailable/);
+});
